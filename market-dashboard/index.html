@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>德训鞋女 · 淘宝市场情报看板</title>
+  <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="eyebrow">Taobao Market Intelligence</div>
+      <h1 id="h1"></h1>
+      <div class="sub" id="sub"></div>
+      <div class="meta" id="meta"></div>
+    </header>
+
+    <section>
+      <div class="sec-title">核心指标</div>
+      <div class="sec-desc">基于销量排序前 100 页搜索结果统计</div>
+      <div class="grid kpi-grid" id="kpi"></div>
+    </section>
+
+    <section>
+      <div class="sec-title">价格分布</div>
+      <div class="sec-desc">商品定价集中区间，反映主流价格带</div>
+      <div class="card" id="price"></div>
+    </section>
+
+    <section>
+      <div class="two-col">
+        <div>
+          <div class="sec-title">风格标签</div>
+          <div class="sec-desc">标题风格关键词命中数</div>
+          <div class="card" id="styles"></div>
+        </div>
+        <div>
+          <div class="sec-title">颜色分布</div>
+          <div class="sec-desc">标题中出现的颜色关键词</div>
+          <div class="card" id="colors"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="two-col">
+        <div>
+          <div class="sec-title">品牌 TOP20</div>
+          <div class="sec-desc">标题或店铺命中品牌的商品数量</div>
+          <div class="card" id="brands"></div>
+        </div>
+        <div>
+          <div class="sec-title">产地分布</div>
+          <div class="sec-desc">店铺所在地（鞋都格局一览）</div>
+          <div class="card" id="locations"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title">营销热词</div>
+      <div class="sec-desc">标题高频关键词，字号越大出现次数越多</div>
+      <div class="card cloud" id="cloud"></div>
+    </section>
+
+    <section>
+      <div class="sec-title">重复铺货店铺 TOP10</div>
+      <div class="sec-desc">商品链接数远多于唯一主图数的店铺（同款多链接占搜索坑位）</div>
+      <div class="card table-card">
+        <table>
+          <thead>
+            <tr><th>#</th><th>店铺</th><th>商品链接数</th><th>唯一主图</th><th>重复铺货率</th></tr>
+          </thead>
+          <tbody id="duptbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-title">热销商品 TOP20</div>
+      <div class="sec-desc">按销量数值排序，点击图片可跳转淘宝</div>
+      <div class="prod-grid" id="products"></div>
+    </section>
+
+    <section>
+      <div class="sec-title">视觉同质化</div>
+      <div class="sec-desc">主图归一化后拆分「同图多链接」与「标题特征近似款」两类现象，点击展开查看详情</div>
+      <div class="vtabs">
+        <button class="vtab on" type="button" data-tab="dup">重复铺货 / 同款<span class="vn" id="dupCnt"></span></button>
+        <button class="vtab" type="button" data-tab="style">款式撞款<span class="vn" id="styleCnt"></span></button>
+      </div>
+      <div id="visualDup"></div>
+      <div id="visualStyle" hidden></div>
+      <div class="vlist-note" id="visualNote"></div>
+    </section>
+
+    <footer id="footer"></footer>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
