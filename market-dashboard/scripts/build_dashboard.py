@@ -17,6 +17,21 @@ OUT_PATH = Path(__file__).resolve().parents[1] / "data.js"
 
 
 COLOR_TERMS = ["白色", "黑色", "灰色", "棕色", "粉色", "红色", "蓝色", "绿色", "黄色", "紫色", "杏色", "银色", "金色"]
+COLOR_GROUPS = [
+    ("白色", ["白"]),
+    ("红色", ["红"]),
+    ("银色", ["银"]),
+    ("黑色", ["黑"]),
+    ("蓝色", ["蓝"]),
+    ("粉色", ["粉"]),
+    ("黄色", ["黄"]),
+    ("绿色", ["绿"]),
+    ("灰色", ["灰"]),
+    ("金色", ["金"]),
+    ("棕色", ["棕", "咖"]),
+    ("紫色", ["紫"]),
+    ("杏色", ["杏"]),
+]
 STYLE_TERMS = [
     "休闲", "新款", "板鞋", "百搭", "透气", "阿甘", "复古", "厚底", "内增高", "芭蕾",
     "软底", "运动休闲", "平底", "轻便", "真皮", "网面", "小白", "薄底", "玛丽珍",
@@ -45,7 +60,7 @@ BRANDS = [
     ("puma", ["puma", "彪马"]),
     ("fila", ["fila", "斐乐"]),
     ("champion", ["champion"]),
-    ("魀品", ["魀品"]),
+    ("鮀品", ["鮀品"]),
     ("骆驼", ["骆驼", "camel"]),
     ("weflower", ["weflower"]),
     ("leecooper", ["lee cooper", "leecooper"]),
@@ -90,7 +105,8 @@ def normalize_image(url: str) -> str:
     parsed = urlparse(str(url).strip())
     path = parsed.path or str(url)
     match = re.match(r"(.+?\.(?:jpg|jpeg|png|webp))(?:[_?].*)?$", path, flags=re.I)
-    return (match.group(1) if match else path).lower()
+    canonical_path = match.group(1) if match else path
+    return (parsed.netloc + canonical_path).lower()
 
 
 def province(location: str) -> str:
@@ -118,6 +134,15 @@ def count_terms(titles: pd.Series, terms: list[str], top_n: int | None = None) -
                 counter[term] += 1
     rows = [{"name": key, "count": value} for key, value in counter.most_common(top_n)]
     return rows
+
+
+def count_color_groups(titles: pd.Series) -> list[dict]:
+    counter = Counter()
+    for title in titles.fillna("").astype(str):
+        for color, aliases in COLOR_GROUPS:
+            if any(alias in title for alias in aliases):
+                counter[color] += 1
+    return [{"name": key, "count": value} for key, value in counter.most_common()]
 
 
 def price_distribution(prices: pd.Series) -> list[dict]:
@@ -187,7 +212,7 @@ def representatives_for_exact_image(group: pd.DataFrame) -> list[dict]:
     }]
 
 
-def duplicate_groups(df: pd.DataFrame, top_n: int = 20) -> tuple[list[dict], int]:
+def duplicate_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
     groups = []
     grouped = df[df["image_key"] != ""].groupby("image_key")
     for _, part in grouped:
@@ -235,10 +260,10 @@ def style_signature(row: pd.Series) -> tuple[str, ...] | None:
         band = "中高价"
     else:
         band = "高价"
-    return tuple(sorted(set(terms))[:5] + [band])
+    return tuple(sorted(set(terms)) + [band])
 
 
-def style_groups(df: pd.DataFrame, top_n: int = 20) -> tuple[list[dict], int]:
+def style_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
     bucket: dict[tuple[str, ...], list[int]] = defaultdict(list)
     for idx, row in df.iterrows():
         signature = style_signature(row)
@@ -247,10 +272,16 @@ def style_groups(df: pd.DataFrame, top_n: int = 20) -> tuple[list[dict], int]:
     groups = []
     for _, indexes in bucket.items():
         part = df.loc[indexes]
-        if len(part) < 2 or part["image_key"].nunique() < 2 or part["店铺"].nunique() < 2:
+        if not (2 <= len(part) <= 5) or part["image_key"].nunique() < 2 or part["店铺"].nunique() < 2:
             continue
         brands = sorted({brand for brand in part["brand"].dropna().astype(str) if brand})
         if len(brands) < 2:
+            continue
+        brand_counts = Counter(part["brand"].dropna().astype(str))
+        shop_counts = Counter(part["店铺"].astype(str))
+        if brand_counts and max(brand_counts.values()) / len(part) > 0.6:
+            continue
+        if max(shop_counts.values()) / len(part) > 0.5:
             continue
         part = part.sort_values(["sales_num", "排名"], ascending=[False, True])
         first = part.iloc[0]
@@ -313,7 +344,7 @@ def main() -> None:
         for brand, count in brand_counter.most_common(20)
     ]
     location_rows = [{"location": key, "count": value} for key, value in Counter(df["province"]).most_common(20)]
-    color_rows = count_terms(df["商品标题"], COLOR_TERMS)
+    color_rows = count_color_groups(df["商品标题"])
     style_rows = count_terms(df["商品标题"], STYLE_TERMS, 15)
     hot_rows = [{"word": row["name"], "count": row["count"]} for row in count_terms(df["商品标题"], HOT_WORDS)]
 
@@ -380,8 +411,13 @@ def main() -> None:
         "hot_words": hot_rows,
         "top_products": top_products,
         "visual_meta": {
+            "total_items": int(len(df)),
+            "unique_urls": int(df["主图链接"].fillna("").astype(str).nunique()),
+            "unique_canonical_images": int(df["image_key"].nunique()),
             "dup_groups_count": dup_total,
             "style_groups_count": style_total,
+            "dup_total_links": int(sum(group["link_count"] for group in dup_groups_rows)),
+            "style_total_links": int(sum(group["link_count"] for group in style_groups_rows)),
         },
         "dup_groups": dup_groups_rows,
         "style_groups": style_groups_rows,
