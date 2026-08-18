@@ -120,7 +120,7 @@ $("#products").innerHTML = D.top_products.map((product) => `
 
 $("#dupCnt").textContent = D.visual_meta.dup_groups_count;
 $("#styleCnt").textContent = D.visual_meta.style_groups_count;
-$("#visualNote").textContent = `展示重复铺货 TOP ${D.dup_groups.length} 组、款式撞款 TOP ${D.style_groups.length} 组；全量共 ${D.visual_meta.dup_groups_count} 组重复铺货、${D.visual_meta.style_groups_count} 组标题特征撞款。`;
+$("#visualNote").textContent = `展示重复铺货 TOP ${D.dup_groups.length} 组、款式撞款 TOP ${D.style_groups.length} 组；全量共 ${D.visual_meta.dup_groups_count} 组重复铺货、${D.visual_meta.style_groups_count} 组 pHash 视觉近似撞款。`;
 
 function salesFmt(value) {
   const n = Number(value || 0);
@@ -210,7 +210,7 @@ function renderStyle(group, index) {
         <div class="vimgs style-vimgs" id="style_groups-vimgs-${index}">${reps}</div>
         ${brands}
         <div class="style-links-panel" id="style_groups-links-${index}"></div>
-        <div style="margin-top:12px">${shopLines(group)}<div class="vnote">基于标题里的鞋型、底型、风格与颜色词近似归组，不等同于图像指纹识别，适合快速发现跟款方向。</div></div>
+        <div style="margin-top:12px">${shopLines(group)}<div class="vnote">基于 canonical 主图的 DCT pHash 视觉相似度归组，并经过品牌多样性过滤，用于发现跨店/跨品牌跟款方向。</div></div>
       </div>
     </div>
   `;

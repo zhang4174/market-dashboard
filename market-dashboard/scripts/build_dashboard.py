@@ -4,16 +4,39 @@ import json
 import math
 import re
 import sys
+import hashlib
+import io
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+import numpy as np
 import pandas as pd
+from PIL import Image, ImageOps
 
 
 SOURCE_PATH = Path("/Users/mac/WorkBuddy/lin'shi/market-intel/output/德训鞋女_销量排序_100页_原始数据.xlsx")
 OUT_PATH = Path(__file__).resolve().parents[1] / "data.js"
+CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "phash"
+IMAGE_CACHE_DIR = CACHE_DIR / "images"
+PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
+PHASH_DISTANCE_THRESHOLD = 6
+DCT_SIZE = 32
+HASH_SIZE = 8
+DCT_MATRIX = np.array(
+    [
+        [
+            math.sqrt(1 / DCT_SIZE) if i == 0 else math.sqrt(2 / DCT_SIZE) * math.cos((math.pi * (2 * j + 1) * i) / (2 * DCT_SIZE))
+            for j in range(DCT_SIZE)
+        ]
+        for i in range(DCT_SIZE)
+    ],
+    dtype=np.float32,
+)
 
 
 COLOR_TERMS = ["白色", "黑色", "灰色", "棕色", "粉色", "红色", "蓝色", "绿色", "黄色", "紫色", "杏色", "银色", "金色"]
@@ -109,6 +132,142 @@ def normalize_image(url: str) -> str:
     return (parsed.netloc + canonical_path).lower()
 
 
+def cache_file_for_key(image_key: str) -> Path:
+    return IMAGE_CACHE_DIR / (hashlib.sha1(image_key.encode("utf-8")).hexdigest() + ".img")
+
+
+def fetch_image_bytes(url: str, image_key: str, timeout: int = 12) -> bytes | None:
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_file_for_key(image_key)
+    if cache_path.exists() and cache_path.stat().st_size > 0:
+        return cache_path.read_bytes()
+    request = urllib.request.Request(
+        str(url),
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+            "Referer": "https://www.taobao.com/",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            data = response.read()
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+    if not data:
+        return None
+    cache_path.write_bytes(data)
+    return data
+
+
+def perceptual_hash(image_bytes: bytes) -> int | None:
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image = ImageOps.exif_transpose(image).convert("L").resize((DCT_SIZE, DCT_SIZE), Image.Resampling.LANCZOS)
+    except Exception:
+        return None
+    pixels = np.asarray(image, dtype=np.float32)
+    dct = DCT_MATRIX @ pixels @ DCT_MATRIX.T
+    low_freq = dct[:HASH_SIZE, :HASH_SIZE]
+    median = float(np.median(low_freq.flatten()[1:]))
+    bits = low_freq >= median
+    value = 0
+    for bit in bits.flatten():
+        value = (value << 1) | int(bool(bit))
+    return value
+
+
+def load_phash_cache() -> dict[str, str]:
+    if not PHASH_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(PHASH_CACHE_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def save_phash_cache(cache: dict[str, str]) -> None:
+    PHASH_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    PHASH_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+
+
+def compute_image_hashes(image_sources: dict[str, str], workers: int = 32) -> dict[str, int]:
+    cached = load_phash_cache()
+    hashes: dict[str, int] = {}
+    missing: dict[str, str] = {}
+    for image_key, url in image_sources.items():
+        value = cached.get(image_key)
+        if value:
+            hashes[image_key] = int(value, 16)
+        else:
+            missing[image_key] = url
+    if missing:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(fetch_image_bytes, url, image_key): image_key
+                for image_key, url in missing.items()
+            }
+            completed = 0
+            for future in as_completed(futures):
+                image_key = futures[future]
+                completed += 1
+                data = future.result()
+                value = perceptual_hash(data) if data else None
+                if value is not None:
+                    hashes[image_key] = value
+                    cached[image_key] = f"{value:016x}"
+                if completed % 500 == 0:
+                    print(f"phash progress: {completed}/{len(missing)} new images", file=sys.stderr)
+        save_phash_cache(cached)
+    return hashes
+
+
+def hamming_distance(a: int, b: int) -> int:
+    return int((a ^ b).bit_count())
+
+
+class UnionFind:
+    def __init__(self, values: list[str]):
+        self.parent = {value: value for value in values}
+
+    def find(self, value: str) -> str:
+        parent = self.parent[value]
+        if parent != value:
+            self.parent[value] = self.find(parent)
+        return self.parent[value]
+
+    def union(self, left: str, right: str) -> None:
+        root_left = self.find(left)
+        root_right = self.find(right)
+        if root_left != root_right:
+            self.parent[root_right] = root_left
+
+
+def phash_clusters(image_hashes: dict[str, int], threshold: int = PHASH_DISTANCE_THRESHOLD) -> list[list[str]]:
+    keys = list(image_hashes)
+    uf = UnionFind(keys)
+    buckets: dict[int, list[str]] = defaultdict(list)
+    for key, value in image_hashes.items():
+        buckets[value.bit_count()].append(key)
+    bit_counts = sorted(buckets)
+    for bit_count in bit_counts:
+        candidates = []
+        for neighbor_count in range(bit_count - threshold, bit_count + threshold + 1):
+            candidates.extend(buckets.get(neighbor_count, []))
+        source_keys = buckets[bit_count]
+        candidate_set = set(candidates)
+        for i, left in enumerate(source_keys):
+            left_hash = image_hashes[left]
+            for right in candidate_set:
+                if right <= left:
+                    continue
+                if hamming_distance(left_hash, image_hashes[right]) <= threshold:
+                    uf.union(left, right)
+    clusters: dict[str, list[str]] = defaultdict(list)
+    for key in keys:
+        clusters[uf.find(key)].append(key)
+    return [cluster for cluster in clusters.values() if len(cluster) >= 2]
+
+
 def province(location: str) -> str:
     text = str(clean_nan(location) or "").strip()
     for item in PROVINCES:
@@ -123,6 +282,24 @@ def first_brand(title: str, shop: str) -> str | None:
         if any(pattern.lower() in haystack for pattern in patterns):
             return brand
     return None
+
+
+def shop_brand_marker(shop: str) -> str:
+    text = str(clean_nan(shop) or "").strip().lower()
+    text = re.sub(r"\s+", "", text)
+    suffixes = [
+        "官方outlets店", "官方旗舰店", "旗舰店", "专卖店", "专营店", "直营店", "折扣店",
+        "企业店", "工厂店", "女鞋店", "鞋类旗舰店", "运动旗舰店", "商务旗舰店",
+    ]
+    for suffix in suffixes:
+        if text.endswith(suffix.lower()):
+            text = text[: -len(suffix)]
+            break
+    return text or str(shop)
+
+
+def brand_marker(title: str, shop: str) -> str:
+    return first_brand(title, shop) or shop_brand_marker(shop)
 
 
 def count_terms(titles: pd.Series, terms: list[str], top_n: int | None = None) -> list[dict]:
@@ -212,6 +389,24 @@ def representatives_for_exact_image(group: pd.DataFrame) -> list[dict]:
     }]
 
 
+def representatives_for_canonical_images(group: pd.DataFrame, limit: int = 12) -> list[dict]:
+    reps = []
+    for _, img_part in group.groupby("image_key", sort=False):
+        img_part = img_part.sort_values(["sales_num", "排名"], ascending=[False, True])
+        row = img_part.iloc[0]
+        reps.append({
+            "image": str(row["主图链接"]),
+            "title": str(row["商品标题"]),
+            "shop": str(row["店铺"]),
+            "price": round(float(row["价格(元)"]), 2),
+            "url": str(row["商品链接"]),
+            "count": int(len(img_part)),
+            "members": [product_record(member) for _, member in img_part.head(8).iterrows()],
+        })
+    reps.sort(key=lambda item: -item["count"])
+    return reps[:limit]
+
+
 def duplicate_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
     groups = []
     grouped = df[df["image_key"] != ""].groupby("image_key")
@@ -237,6 +432,10 @@ def duplicate_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int
         })
     groups.sort(key=lambda item: (-item["link_count"], -item["shop_count"], item["sample_shop"]))
     return groups[:top_n], len(groups)
+
+
+def duplicate_groups_from_clusters(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
+    return duplicate_groups(df, top_n)
 
 
 def style_signature(row: pd.Series) -> tuple[str, ...] | None:
@@ -320,6 +519,51 @@ def style_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
     return groups[:top_n], len(groups)
 
 
+def phash_style_groups(df: pd.DataFrame, clusters: list[list[str]], top_n: int = 50) -> tuple[list[dict], int, int]:
+    candidates = []
+    groups = []
+    by_key = {key: part for key, part in df[df["image_key"] != ""].groupby("image_key")}
+    for cluster in clusters:
+        parts = [by_key[key] for key in cluster if key in by_key]
+        if len(parts) < 2:
+            continue
+        part = pd.concat(parts, ignore_index=False).sort_values(["sales_num", "排名"], ascending=[False, True])
+        canonical_count = int(part["image_key"].nunique())
+        if canonical_count < 2 or len(part) < 2:
+            continue
+        candidates.append(part)
+
+        marker_counts = Counter(part["brand_marker"].astype(str))
+        known_brands = sorted({brand for brand in part["brand"].dropna().astype(str) if brand})
+        if len(marker_counts) < 2:
+            continue
+        if max(marker_counts.values()) / len(part) > 0.8:
+            continue
+
+        first = part.iloc[0]
+        shops, shops_total = shop_summary(part)
+        display_brands = known_brands or [marker for marker, _ in marker_counts.most_common(8)]
+        reps = representatives_for_canonical_images(part)
+        groups.append({
+            "tag": "style",
+            "tag_label": "款式撞款",
+            "link_count": int(len(part)),
+            "unique_images": canonical_count,
+            "shop_count": int(part["店铺"].nunique()),
+            "brand_count": int(len(marker_counts)),
+            "brands": display_brands[:8],
+            "sample_title": str(first["商品标题"]),
+            "sample_shop": str(first["店铺"]),
+            "sample_price": round(float(first["价格(元)"]), 2),
+            "shops": shops,
+            "shops_total": shops_total,
+            "representatives": reps,
+            "representative": str(first["主图链接"]),
+        })
+    groups.sort(key=lambda item: (-item["link_count"], -item["brand_count"], -item["shop_count"]))
+    return groups[:top_n], len(groups), len(candidates)
+
+
 def main() -> None:
     source = Path(sys.argv[1]) if len(sys.argv) > 1 else SOURCE_PATH
     if not source.exists():
@@ -336,6 +580,7 @@ def main() -> None:
     df["image_key"] = df["主图链接"].fillna("").astype(str).map(normalize_image)
     df["province"] = df["产地"].fillna("").astype(str).map(province)
     df["brand"] = [first_brand(title, shop) for title, shop in zip(df["商品标题"], df["店铺"])]
+    df["brand_marker"] = [brand_marker(title, shop) for title, shop in zip(df["商品标题"], df["店铺"])]
 
     brand_counter = Counter(brand for brand in df["brand"] if brand)
     branded_products = sum(brand_counter.values()) or 1
@@ -348,8 +593,18 @@ def main() -> None:
     style_rows = count_terms(df["商品标题"], STYLE_TERMS, 15)
     hot_rows = [{"word": row["name"], "count": row["count"]} for row in count_terms(df["商品标题"], HOT_WORDS)]
 
-    dup_groups_rows, dup_total = duplicate_groups(df)
-    style_groups_rows, style_total = style_groups(df)
+    image_sources = (
+        df[df["image_key"] != ""]
+        .sort_values("排名")
+        .drop_duplicates("image_key")
+        .set_index("image_key")["主图链接"]
+        .astype(str)
+        .to_dict()
+    )
+    image_hashes = compute_image_hashes(image_sources)
+    clusters = phash_clusters(image_hashes)
+    dup_groups_rows, dup_total = duplicate_groups_from_clusters(df)
+    style_groups_rows, style_total, style_candidate_total = phash_style_groups(df, clusters)
 
     dup_shop_rows = []
     for shop, part in df.groupby("店铺"):
@@ -414,6 +669,10 @@ def main() -> None:
             "total_items": int(len(df)),
             "unique_urls": int(df["主图链接"].fillna("").astype(str).nunique()),
             "unique_canonical_images": int(df["image_key"].nunique()),
+            "phash_images": int(len(image_hashes)),
+            "phash_groups": int(len(clusters)),
+            "style_candidates": int(style_candidate_total),
+            "phash_distance_threshold": PHASH_DISTANCE_THRESHOLD,
             "dup_groups_count": dup_total,
             "style_groups_count": style_total,
             "dup_total_links": int(sum(group["link_count"] for group in dup_groups_rows)),
