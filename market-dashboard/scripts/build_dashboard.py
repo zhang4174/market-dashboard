@@ -19,13 +19,14 @@ import pandas as pd
 from PIL import Image, ImageOps
 
 
-SOURCE_PATH = Path("/Users/mac/WorkBuddy/lin'shi/market-intel/output/德训鞋女_销量排序_100页_原始数据.xlsx")
+SOURCE_PATH = Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx")
 OUT_PATH = Path(__file__).resolve().parents[1] / "data.js"
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "phash"
 IMAGE_CACHE_DIR = CACHE_DIR / "images"
 PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
 PHASH_DISTANCE_THRESHOLD = 6
 MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE = 0.6
+DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页"]
 DCT_SIZE = 32
 HASH_SIZE = 8
 DCT_MATRIX = np.array(
@@ -131,6 +132,36 @@ def normalize_image(url: str) -> str:
     match = re.match(r"(.+?\.(?:jpg|jpeg|png|webp))(?:[_?].*)?$", path, flags=re.I)
     canonical_path = match.group(1) if match else path
     return (parsed.netloc + canonical_path).lower()
+
+
+def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]:
+    workbook = pd.ExcelFile(source)
+    data_sheet = next((sheet for sheet in DATA_SHEET_CANDIDATES if sheet in workbook.sheet_names), workbook.sheet_names[0])
+    raw = pd.read_excel(source, sheet_name=data_sheet)
+    raw = raw.rename(columns={"价格": "价格(元)"})
+
+    required_columns = ["排名", "商品标题", "价格(元)", "销量", "店铺", "产地", "商品链接", "主图链接"]
+    missing = [column for column in required_columns if column not in raw.columns]
+    if missing:
+        raise SystemExit(f"Missing required columns in {source}: {', '.join(missing)}")
+
+    overview: dict[str, object] = {}
+    if "数据概览" in workbook.sheet_names:
+        overview_df = pd.read_excel(source, sheet_name="数据概览")
+        if {"指标", "值"}.issubset(overview_df.columns):
+            overview = dict(zip(overview_df["指标"].astype(str), overview_df["值"]))
+
+    if "关键词" not in overview:
+        overview["关键词"] = "德训鞋女"
+    if "排序方式" not in overview:
+        overview["排序方式"] = "销量排序"
+    if "抓取页数" not in overview and "页码" in raw.columns and raw["页码"].notna().any():
+        max_page = int(pd.to_numeric(raw["页码"], errors="coerce").max())
+        overview["抓取页数"] = f"{max_page}/{max_page}"
+    if "其中广告位" not in overview:
+        overview["其中广告位"] = int(raw["商品链接"].fillna("").astype(str).str.contains("click.simba.taobao.com").sum())
+
+    return raw, overview
 
 
 def cache_file_for_key(image_key: str) -> Path:
@@ -582,9 +613,7 @@ def main() -> None:
     if not source.exists():
         raise SystemExit(f"Source workbook not found: {source}")
 
-    raw = pd.read_excel(source, sheet_name="德训鞋女-销量排序")
-    overview_df = pd.read_excel(source, sheet_name="数据概览")
-    overview = dict(zip(overview_df["指标"].astype(str), overview_df["值"]))
+    raw, overview = read_source_workbook(source)
 
     df = raw.copy()
     df["价格(元)"] = pd.to_numeric(df["价格(元)"], errors="coerce")
@@ -595,7 +624,7 @@ def main() -> None:
     df["brand"] = [first_brand(title, shop) for title, shop in zip(df["商品标题"], df["店铺"])]
     df["brand_marker"] = [brand_marker(title, shop) for title, shop in zip(df["商品标题"], df["店铺"])]
 
-    brand_counter = Counter(brand for brand in df["brand"] if brand)
+    brand_counter = Counter(str(brand) for brand in df["brand"] if pd.notna(brand) and str(brand))
     branded_products = sum(brand_counter.values()) or 1
     brand_rows = [
         {"name": brand, "count": count, "percent": round(count / branded_products * 100, 1)}
