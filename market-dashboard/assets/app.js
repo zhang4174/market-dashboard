@@ -33,7 +33,7 @@ const kpis = [
   { label: "商品总数", value: number(D.kpi.total_products), unit: "件", sub: `其中广告位 ${number(D.kpi.ad_count)} 个` },
   { label: "均价 / 中位数", value: money(D.kpi.avg_price, 2), unit: ` / ${money(D.kpi.median_price)}`, sub: `价格区间 ${money(D.kpi.min_price, 2)} - ${money(D.kpi.max_price, 0)}` },
   { label: "店铺数", value: number(D.kpi.total_shops), unit: "家", sub: `分布在 ${number(D.kpi.total_locations)} 个产地` },
-  { label: "视觉唯一主图", value: number(D.kpi.unique_images), unit: "张", sub: `重复铺货 ${D.visual_meta.dup_groups_count} 组 / 款式撞款 ${D.visual_meta.style_groups_count} 组` }
+  { label: "视觉唯一主图", value: number(D.kpi.unique_images), unit: "张", sub: `重复铺货 ${D.visual_meta.dup_groups_count} 组，含单店与跨店同主图` }
 ];
 
 $("#kpi").innerHTML = kpis.map((item) => `
@@ -119,8 +119,7 @@ $("#products").innerHTML = D.top_products.map((product) => `
 `).join("");
 
 $("#dupCnt").textContent = D.visual_meta.dup_groups_count;
-$("#styleCnt").textContent = D.visual_meta.style_groups_count;
-$("#visualNote").textContent = `展示重复铺货 TOP ${D.dup_groups.length} 组、款式撞款 TOP ${D.style_groups.length} 组；全量共 ${D.visual_meta.dup_groups_count} 组重复铺货、${D.visual_meta.style_groups_count} 组 pHash 视觉近似撞款。`;
+$("#visualNote").textContent = `展示重复铺货 TOP ${D.dup_groups.length} 组；全量共 ${D.visual_meta.dup_groups_count} 组同主图多链接，覆盖 ${number(D.visual_meta.dup_total_links)} 个商品链接。`;
 
 function salesFmt(value) {
   const n = Number(value || 0);
@@ -272,14 +271,4 @@ function showRep(event, listKey, groupIndex, repIndex) {
 }
 
 $("#visualDup").innerHTML = D.dup_groups.map(renderDup).join("");
-$("#visualStyle").innerHTML = D.style_groups.map(renderStyle).join("");
-
-document.querySelectorAll(".vtab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    document.querySelectorAll(".vtab").forEach((item) => item.classList.remove("on"));
-    tab.classList.add("on");
-    const key = tab.dataset.tab;
-    $("#visualDup").hidden = key !== "dup";
-    $("#visualStyle").hidden = key !== "style";
-  });
-});
+if ($("#visualStyle")) $("#visualStyle").innerHTML = "";

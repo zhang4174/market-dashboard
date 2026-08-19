@@ -131,7 +131,7 @@ def normalize_image(url: str) -> str:
     path = parsed.path or str(url)
     match = re.match(r"(.+?\.(?:jpg|jpeg|png|webp))(?:[_?].*)?$", path, flags=re.I)
     canonical_path = match.group(1) if match else path
-    return (parsed.netloc + canonical_path).lower()
+    return canonical_path.lower()
 
 
 def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]:
@@ -439,7 +439,7 @@ def representatives_for_canonical_images(group: pd.DataFrame, limit: int = 12, m
     return reps[:limit]
 
 
-def duplicate_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
+def duplicate_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int, int]:
     groups = []
     grouped = df[df["image_key"] != ""].groupby("image_key")
     for _, part in grouped:
@@ -463,10 +463,10 @@ def duplicate_groups(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int
             "representative": str(first["主图链接"]),
         })
     groups.sort(key=lambda item: (-item["link_count"], -item["shop_count"], item["sample_shop"]))
-    return groups[:top_n], len(groups)
+    return groups[:top_n], len(groups), int(sum(group["link_count"] for group in groups))
 
 
-def duplicate_groups_from_clusters(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int]:
+def duplicate_groups_from_clusters(df: pd.DataFrame, top_n: int = 50) -> tuple[list[dict], int, int]:
     return duplicate_groups(df, top_n)
 
 
@@ -635,18 +635,10 @@ def main() -> None:
     style_rows = count_terms(df["商品标题"], STYLE_TERMS, 15)
     hot_rows = [{"word": row["name"], "count": row["count"]} for row in count_terms(df["商品标题"], HOT_WORDS)]
 
-    image_sources = (
-        df[df["image_key"] != ""]
-        .sort_values("排名")
-        .drop_duplicates("image_key")
-        .set_index("image_key")["主图链接"]
-        .astype(str)
-        .to_dict()
-    )
-    image_hashes = compute_image_hashes(image_sources)
-    clusters = phash_clusters(image_hashes)
-    dup_groups_rows, dup_total = duplicate_groups_from_clusters(df)
-    style_groups_rows, style_total, style_candidate_total = phash_style_groups(df, clusters)
+    dup_groups_rows, dup_total, dup_total_links = duplicate_groups_from_clusters(df)
+    style_groups_rows = []
+    style_total = 0
+    style_candidate_total = 0
 
     dup_shop_rows = []
     for shop, part in df.groupby("店铺"):
@@ -708,16 +700,17 @@ def main() -> None:
         "hot_words": hot_rows,
         "top_products": top_products,
         "visual_meta": {
+            "analysis_mode": "duplicate_only",
             "total_items": int(len(df)),
             "unique_urls": int(df["主图链接"].fillna("").astype(str).nunique()),
             "unique_canonical_images": int(df["image_key"].nunique()),
-            "phash_images": int(len(image_hashes)),
-            "phash_groups": int(len(clusters)),
+            "phash_images": 0,
+            "phash_groups": 0,
             "style_candidates": int(style_candidate_total),
             "phash_distance_threshold": PHASH_DISTANCE_THRESHOLD,
             "dup_groups_count": dup_total,
             "style_groups_count": style_total,
-            "dup_total_links": int(sum(group["link_count"] for group in dup_groups_rows)),
+            "dup_total_links": dup_total_links,
             "style_total_links": int(sum(group["link_count"] for group in style_groups_rows)),
         },
         "dup_groups": dup_groups_rows,
