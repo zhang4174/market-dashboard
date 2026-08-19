@@ -25,6 +25,7 @@ CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "phash"
 IMAGE_CACHE_DIR = CACHE_DIR / "images"
 PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
 PHASH_DISTANCE_THRESHOLD = 6
+MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE = 0.6
 DCT_SIZE = 32
 HASH_SIZE = 8
 DCT_MATRIX = np.array(
@@ -389,7 +390,7 @@ def representatives_for_exact_image(group: pd.DataFrame) -> list[dict]:
     }]
 
 
-def representatives_for_canonical_images(group: pd.DataFrame, limit: int = 12) -> list[dict]:
+def representatives_for_canonical_images(group: pd.DataFrame, limit: int = 12, member_limit: int = 8) -> list[dict]:
     reps = []
     for _, img_part in group.groupby("image_key", sort=False):
         img_part = img_part.sort_values(["sales_num", "排名"], ascending=[False, True])
@@ -401,7 +402,7 @@ def representatives_for_canonical_images(group: pd.DataFrame, limit: int = 12) -
             "price": round(float(row["价格(元)"]), 2),
             "url": str(row["商品链接"]),
             "count": int(len(img_part)),
-            "members": [product_record(member) for _, member in img_part.head(8).iterrows()],
+            "members": [product_record(member) for _, member in img_part.head(member_limit).iterrows()],
         })
     reps.sort(key=lambda item: -item["count"])
     return reps[:limit]
@@ -533,23 +534,35 @@ def phash_style_groups(df: pd.DataFrame, clusters: list[list[str]], top_n: int =
             continue
         candidates.append(part)
 
-        marker_counts = Counter(part["brand_marker"].astype(str))
-        known_brands = sorted({brand for brand in part["brand"].dropna().astype(str) if brand})
-        if len(marker_counts) < 2:
-            continue
-        if max(marker_counts.values()) / len(part) > 0.8:
+        image_link_counts = part.groupby("image_key").size()
+        dominant_image_share = float(image_link_counts.max()) / len(part)
+        if image_link_counts.max() > 1 and dominant_image_share > MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE:
             continue
 
-        first = part.iloc[0]
-        shops, shops_total = shop_summary(part)
+        canonical_rows = []
+        for _, img_part in part.groupby("image_key", sort=False):
+            canonical_rows.append(img_part.sort_values(["sales_num", "排名"], ascending=[False, True]).iloc[0])
+        canonical_part = pd.DataFrame(canonical_rows).sort_values(["sales_num", "排名"], ascending=[False, True])
+
+        marker_counts = Counter(canonical_part["brand_marker"].astype(str))
+        known_brands = sorted({brand for brand in canonical_part["brand"].dropna().astype(str) if brand})
+        if len(marker_counts) < 2:
+            continue
+        if max(marker_counts.values()) / len(canonical_part) > 0.8:
+            continue
+
+        first = canonical_part.iloc[0]
+        shops, shops_total = shop_summary(canonical_part)
         display_brands = known_brands or [marker for marker, _ in marker_counts.most_common(8)]
-        reps = representatives_for_canonical_images(part)
+        reps = representatives_for_canonical_images(part, member_limit=1)
         groups.append({
             "tag": "style",
             "tag_label": "款式撞款",
             "link_count": int(len(part)),
+            "style_image_count": canonical_count,
+            "duplicate_link_count": int(len(part) - canonical_count),
             "unique_images": canonical_count,
-            "shop_count": int(part["店铺"].nunique()),
+            "shop_count": int(canonical_part["店铺"].nunique()),
             "brand_count": int(len(marker_counts)),
             "brands": display_brands[:8],
             "sample_title": str(first["商品标题"]),
@@ -560,7 +573,7 @@ def phash_style_groups(df: pd.DataFrame, clusters: list[list[str]], top_n: int =
             "representatives": reps,
             "representative": str(first["主图链接"]),
         })
-    groups.sort(key=lambda item: (-item["link_count"], -item["brand_count"], -item["shop_count"]))
+    groups.sort(key=lambda item: (-item["style_image_count"], -item["brand_count"], -item["shop_count"], -item["link_count"]))
     return groups[:top_n], len(groups), len(candidates)
 
 

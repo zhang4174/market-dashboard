@@ -147,6 +147,19 @@ function shopLines(group) {
   return lines + more;
 }
 
+function styleShopLines(group) {
+  const lines = group.shops.map((shop) => `
+    <div class="vshopline">
+      <span class="sn">${esc(shop.shop)}</span>
+      <span class="sd">${number(shop.links)}代表图 · ${priceRange(shop)} · 销量${salesFmt(shop.est_sales)}</span>
+    </div>
+  `).join("");
+  const more = group.shops_total > group.shops.length
+    ? `<div class="vshopline"><span class="sd">另有 ${group.shops_total - group.shops.length} 家店...</span></div>`
+    : "";
+  return lines + more;
+}
+
 function renderRepresentatives(groupKey, groupIndex, group, extraClass = "") {
   return (group.representatives || []).map((rep, repIndex) => `
     <div class="vi ${extraClass}" data-gi="${groupIndex}" data-ri="${repIndex}" onclick="showRep(event, '${groupKey}', ${groupIndex}, ${repIndex})">
@@ -191,26 +204,30 @@ function renderStyle(group, index) {
   const brands = group.brands && group.brands.length > 1
     ? `<div class="brand-tags">${group.brands.map((brand) => `<span class="btag">${esc(brand)}</span>`).join("")}</div>`
     : "";
+  const imageCount = group.style_image_count || group.unique_images;
+  const duplicateNote = group.duplicate_link_count > 0
+    ? `已剥离 ${number(group.duplicate_link_count)} 个同主图重复链接，重复铺货在左侧 tab 查看。`
+    : "已按 canonical 主图去重，避免同一店铺批量铺货影响撞款判断。";
   return `
     <div class="vcard" onclick="this.classList.toggle('open')">
       <div class="vrow">
         ${group.representative ? `<img class="vthumb" loading="lazy" src="${esc(group.representative)}" alt="">` : ""}
         <div class="vmain">
           <div class="vtitle">${esc(group.sample_title)}</div>
-          <div class="vshop"><span class="vtag style">款式撞款</span>${number(group.unique_images)}张不同主图 · ${number(group.brand_count)}个品牌 · ${number(group.shop_count)}家店</div>
+          <div class="vshop"><span class="vtag style">款式撞款</span>${number(imageCount)}张不同主图 · ${number(group.brand_count)}个品牌 · ${number(group.shop_count)}家店</div>
         </div>
         <div class="vstats">
-          <div class="vst"><div class="v red">${number(group.link_count)}</div><div class="l">个链接</div></div>
-          <div class="vst"><div class="v">${number(group.unique_images)}</div><div class="l">张近似图</div></div>
+          <div class="vst"><div class="v red">${number(imageCount)}</div><div class="l">张近似图</div></div>
+          <div class="vst"><div class="v">${number(group.link_count)}</div><div class="l">覆盖链接</div></div>
           <div class="vst"><div class="v">${number(group.shop_count)}</div><div class="l">家店</div></div>
         </div>
       </div>
       <div class="vexpand">
-        <div class="vsub-label">按标题特征聚类得到的近似款，点击主图查看对应商品链接：</div>
+        <div class="vsub-label">按 canonical 主图去重后的近似款，点击主图查看代表商品链接：</div>
         <div class="vimgs style-vimgs" id="style_groups-vimgs-${index}">${reps}</div>
         ${brands}
         <div class="style-links-panel" id="style_groups-links-${index}"></div>
-        <div style="margin-top:12px">${shopLines(group)}<div class="vnote">基于 canonical 主图的 DCT pHash 视觉相似度归组，并经过品牌多样性过滤，用于发现跨店/跨品牌跟款方向。</div></div>
+        <div style="margin-top:12px">${styleShopLines(group)}<div class="vnote">基于 canonical 主图的 DCT pHash 视觉相似度归组，并经过品牌多样性过滤；${esc(duplicateNote)}</div></div>
       </div>
     </div>
   `;
