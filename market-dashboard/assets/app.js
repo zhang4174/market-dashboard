@@ -7,6 +7,9 @@ const esc = (value) => (value == null ? "" : String(value)).replace(/[&<>"']/g, 
   "'": "&#39;"
 }[char]));
 
+const datasets = typeof DATASETS !== "undefined" ? DATASETS : (typeof D !== "undefined" ? [D] : []);
+let currentData = datasets[0] || {};
+
 function number(value) {
   return Number(value || 0).toLocaleString("zh-CN");
 }
@@ -17,109 +20,6 @@ function money(value, digits = 0) {
     maximumFractionDigits: digits
   });
 }
-
-$("#h1").textContent = `${D.keyword} · 市场情报看板`;
-$("#sub").textContent = `基于${D.platform}「${D.keyword}」按${D.sort}抓取前 ${D.pages} 页，共 ${number(D.kpi.total_products)} 个商品、${number(D.kpi.total_shops)} 家店铺的多维度分析。`;
-$("#meta").innerHTML = [
-  `平台：${D.platform}`,
-  `关键词：${D.keyword}`,
-  `排序：${D.sort}`,
-  `页数：${D.pages}`,
-  `生成：${D.generated_at}`
-].map((item) => `<span>${esc(item)}</span>`).join("");
-$("#footer").textContent = `由 WorkBuddy 数据生成 · 数据仅供市场研究参考 · ${D.generated_at}`;
-
-const kpis = [
-  { label: "商品总数", value: number(D.kpi.total_products), unit: "件", sub: `其中广告位 ${number(D.kpi.ad_count)} 个` },
-  { label: "均价 / 中位数", value: money(D.kpi.avg_price, 2), unit: ` / ${money(D.kpi.median_price)}`, sub: `价格区间 ${money(D.kpi.min_price, 2)} - ${money(D.kpi.max_price, 0)}` },
-  { label: "店铺数", value: number(D.kpi.total_shops), unit: "家", sub: `分布在 ${number(D.kpi.total_locations)} 个产地` },
-  { label: "视觉唯一主图", value: number(D.kpi.unique_images), unit: "张", sub: `重复铺货 ${D.visual_meta.dup_groups_count} 组，含单店与跨店同主图` }
-];
-
-$("#kpi").innerHTML = kpis.map((item) => `
-  <div class="card kpi">
-    <div class="label">${esc(item.label)}</div>
-    <div class="value">${item.value}<span class="unit">${esc(item.unit)}</span></div>
-    <div class="sub">${esc(item.sub)}</div>
-  </div>
-`).join("");
-
-function bars(id, rows, formatter) {
-  const max = Math.max(...rows.map((row) => row.count), 1);
-  $(id).innerHTML = rows.map((row) => {
-    const pct = (row.count / max * 100).toFixed(1);
-    const name = row.name || row.range || row.location || row.shop;
-    const value = formatter ? formatter(row) : number(row.count);
-    return `
-      <div class="bar-row">
-        <div class="bar-label" title="${esc(name)}">${esc(name)}</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-        <div class="bar-val">${esc(value)}</div>
-      </div>
-    `;
-  }).join("");
-}
-
-bars("#price", D.price_dist, (row) => `${number(row.count)} (${row.percent})`);
-bars("#styles", D.styles);
-bars("#brands", D.brands, (row) => `${number(row.count)} (${row.percent}%)`);
-bars("#locations", D.locations);
-
-const colorMap = {
-  "白色": "#f5f5f5", "黑色": "#262626", "灰色": "#9ca3af", "棕色": "#92400e",
-  "粉色": "#fbcfe8", "红色": "#dc2626", "蓝色": "#3b82f6", "绿色": "#16a34a",
-  "黄色": "#facc15", "紫色": "#a855f7", "杏色": "#d6b89a", "银色": "#d1d5db", "金色": "#d4af37"
-};
-
-$("#colors").innerHTML = `<div class="color-grid">${D.colors.map((color) => {
-  const fill = colorMap[color.name] || "#ccc";
-  return `
-    <div class="swatch">
-      <div class="dot" style="background:${fill}"></div>
-      <div>${esc(color.name)}</div>
-      <div class="cnt">${number(color.count)}</div>
-    </div>
-  `;
-}).join("")}</div>`;
-
-const maxWord = Math.max(...D.hot_words.map((word) => word.count), 1);
-const minWord = Math.min(...D.hot_words.map((word) => word.count), maxWord);
-$("#cloud").innerHTML = D.hot_words.map((word) => {
-  const t = maxWord === minWord ? 1 : (word.count - minWord) / (maxWord - minWord);
-  const scale = (0.85 + t * 1.45).toFixed(2);
-  const weight = t > 0.6 ? 700 : t > 0.3 ? 500 : 400;
-  return `<span style="font-size:${scale}em;font-weight:${weight}" title="出现 ${number(word.count)} 次">${esc(word.word)}</span>`;
-}).join("");
-
-$("#duptbody").innerHTML = D.dup_shops.map((row, index) => {
-  const cls = row.dup_rate >= 50 ? "rate-high" : row.dup_rate >= 30 ? "rate-mid" : "";
-  return `
-    <tr>
-      <td>${index + 1}</td>
-      <td><b>${esc(row.shop)}</b></td>
-      <td>${number(row.links)}</td>
-      <td>${number(row.unique_imgs)}</td>
-      <td><span class="rate-bar"><span class="rate-fill" style="width:${Math.min(row.dup_rate, 100)}%"></span></span><span class="${cls}">${row.dup_rate}%</span></td>
-    </tr>
-  `;
-}).join("");
-
-$("#products").innerHTML = D.top_products.map((product) => `
-  <div class="prod">
-    <a href="${esc(product.url || "#")}" target="_blank" rel="noopener">
-      ${product.image ? `<img loading="lazy" src="${esc(product.image)}" alt="">` : ""}
-      <div class="info">
-        <div class="t">${esc(product.title)}</div>
-        <div class="pr">${money(product.price)}<span class="y"> 起</span></div>
-        <div class="sa">${esc(product.sales_raw || "")}</div>
-        <div class="sh">${esc(product.shop)} · ${esc(product.location)}</div>
-      </div>
-    </a>
-  </div>
-`).join("");
-
-$("#dupCnt").textContent = D.visual_meta.dup_groups_count;
-$("#visualNote").textContent = `展示重复铺货 TOP ${D.dup_groups.length} 组；全量共 ${D.visual_meta.dup_groups_count} 组同主图多链接，覆盖 ${number(D.visual_meta.dup_total_links)} 个商品链接。`;
 
 function salesFmt(value) {
   const n = Number(value || 0);
@@ -133,27 +33,33 @@ function priceRange(shop) {
   return `${money(shop.price_min)}-${money(shop.price_max)}`;
 }
 
+function bars(id, rows, formatter) {
+  const target = $(id);
+  if (!target) return;
+  const list = rows || [];
+  const max = Math.max(1, ...list.map((row) => row.count || 0));
+  target.innerHTML = list.map((row) => {
+    const pct = (row.count / max * 100).toFixed(1);
+    const name = row.name || row.range || row.location || row.shop;
+    const value = formatter ? formatter(row) : number(row.count);
+    return `
+      <div class="bar-row">
+        <div class="bar-label" title="${esc(name)}">${esc(name)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="bar-val">${esc(value)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
 function shopLines(group) {
-  const lines = group.shops.map((shop) => `
+  const lines = (group.shops || []).map((shop) => `
     <div class="vshopline">
       <span class="sn">${esc(shop.shop)}</span>
       <span class="sd">${number(shop.links)}链接 · ${priceRange(shop)} · 销量${salesFmt(shop.est_sales)}</span>
     </div>
   `).join("");
-  const more = group.shops_total > group.shops.length
-    ? `<div class="vshopline"><span class="sd">另有 ${group.shops_total - group.shops.length} 家店...</span></div>`
-    : "";
-  return lines + more;
-}
-
-function styleShopLines(group) {
-  const lines = group.shops.map((shop) => `
-    <div class="vshopline">
-      <span class="sn">${esc(shop.shop)}</span>
-      <span class="sd">${number(shop.links)}代表图 · ${priceRange(shop)} · 销量${salesFmt(shop.est_sales)}</span>
-    </div>
-  `).join("");
-  const more = group.shops_total > group.shops.length
+  const more = group.shops_total > (group.shops || []).length
     ? `<div class="vshopline"><span class="sd">另有 ${group.shops_total - group.shops.length} 家店...</span></div>`
     : "";
   return lines + more;
@@ -198,43 +104,9 @@ function renderDup(group, index) {
   `;
 }
 
-function renderStyle(group, index) {
-  const reps = renderRepresentatives("style_groups", index, group, "style-rep");
-  const brands = group.brands && group.brands.length > 1
-    ? `<div class="brand-tags">${group.brands.map((brand) => `<span class="btag">${esc(brand)}</span>`).join("")}</div>`
-    : "";
-  const imageCount = group.style_image_count || group.unique_images;
-  const duplicateNote = group.duplicate_link_count > 0
-    ? `已剥离 ${number(group.duplicate_link_count)} 个同主图重复链接，重复铺货在左侧 tab 查看。`
-    : "已按 canonical 主图去重，避免同一店铺批量铺货影响撞款判断。";
-  return `
-    <div class="vcard" onclick="this.classList.toggle('open')">
-      <div class="vrow">
-        ${group.representative ? `<img class="vthumb" loading="lazy" src="${esc(group.representative)}" alt="">` : ""}
-        <div class="vmain">
-          <div class="vtitle">${esc(group.sample_title)}</div>
-          <div class="vshop"><span class="vtag style">款式撞款</span>${number(imageCount)}张不同主图 · ${number(group.brand_count)}个品牌 · ${number(group.shop_count)}家店</div>
-        </div>
-        <div class="vstats">
-          <div class="vst"><div class="v red">${number(imageCount)}</div><div class="l">张近似图</div></div>
-          <div class="vst"><div class="v">${number(group.link_count)}</div><div class="l">覆盖链接</div></div>
-          <div class="vst"><div class="v">${number(group.shop_count)}</div><div class="l">家店</div></div>
-        </div>
-      </div>
-      <div class="vexpand">
-        <div class="vsub-label">按 canonical 主图去重后的近似款，点击主图查看代表商品链接：</div>
-        <div class="vimgs style-vimgs" id="style_groups-vimgs-${index}">${reps}</div>
-        ${brands}
-        <div class="style-links-panel" id="style_groups-links-${index}"></div>
-        <div style="margin-top:12px">${styleShopLines(group)}<div class="vnote">基于 canonical 主图的 DCT pHash 视觉相似度归组，并经过品牌多样性过滤；${esc(duplicateNote)}</div></div>
-      </div>
-    </div>
-  `;
-}
-
 function showRep(event, listKey, groupIndex, repIndex) {
   event.stopPropagation();
-  const group = D[listKey][groupIndex];
+  const group = currentData[listKey] && currentData[listKey][groupIndex];
   if (!group) return;
   const rep = (group.representatives || [])[repIndex];
   if (!rep || !rep.members) return;
@@ -270,5 +142,124 @@ function showRep(event, listKey, groupIndex, repIndex) {
   }
 }
 
-$("#visualDup").innerHTML = D.dup_groups.map(renderDup).join("");
-if ($("#visualStyle")) $("#visualStyle").innerHTML = "";
+window.showRep = showRep;
+
+function renderDashboard(data) {
+  currentData = data;
+  document.title = `${data.keyword} · 淘宝市场情报看板`;
+  $("#h1").textContent = `${data.keyword} · 市场情报看板`;
+  $("#sub").textContent = `基于${data.platform}「${data.keyword}」按${data.sort}抓取前 ${data.pages} 页，共 ${number(data.kpi.total_products)} 个商品、${number(data.kpi.total_shops)} 家店铺的多维度分析。`;
+  $("#meta").innerHTML = [
+    `日期：${data.date}`,
+    `平台：${data.platform}`,
+    `关键词：${data.keyword}`,
+    `排序：${data.sort}`,
+    `页数：${data.pages}`,
+    `生成：${data.generated_at}`
+  ].map((item) => `<span>${esc(item)}</span>`).join("");
+  $("#footer").textContent = `由 WorkBuddy 数据生成 · 当前数据集：${data.date} / ${data.keyword} · ${data.generated_at}`;
+
+  const kpis = [
+    { label: "商品总数", value: number(data.kpi.total_products), unit: "件", sub: `其中广告位 ${number(data.kpi.ad_count)} 个` },
+    { label: "均价 / 中位数", value: money(data.kpi.avg_price, 2), unit: ` / ${money(data.kpi.median_price)}`, sub: `价格区间 ${money(data.kpi.min_price, 2)} - ${money(data.kpi.max_price, 0)}` },
+    { label: "店铺数", value: number(data.kpi.total_shops), unit: "家", sub: `分布在 ${number(data.kpi.total_locations)} 个产地` },
+    { label: "视觉唯一主图", value: number(data.kpi.unique_images), unit: "张", sub: `重复铺货 ${data.visual_meta.dup_groups_count} 组，含单店与跨店同主图` }
+  ];
+  $("#kpi").innerHTML = kpis.map((item) => `
+    <div class="card kpi">
+      <div class="label">${esc(item.label)}</div>
+      <div class="value">${item.value}<span class="unit">${esc(item.unit)}</span></div>
+      <div class="sub">${esc(item.sub)}</div>
+    </div>
+  `).join("");
+
+  bars("#price", data.price_dist, (row) => `${number(row.count)} (${row.percent})`);
+  bars("#styles", data.styles);
+  bars("#brands", data.brands, (row) => `${number(row.count)} (${row.percent}%)`);
+  bars("#locations", data.locations);
+
+  const colorMap = {
+    "白色": "#f5f5f5", "黑色": "#262626", "灰色": "#9ca3af", "棕色": "#92400e",
+    "粉色": "#fbcfe8", "红色": "#dc2626", "蓝色": "#3b82f6", "绿色": "#16a34a",
+    "黄色": "#facc15", "紫色": "#a855f7", "杏色": "#d6b89a", "银色": "#d1d5db", "金色": "#d4af37"
+  };
+  $("#colors").innerHTML = `<div class="color-grid">${data.colors.map((color) => {
+    const fill = colorMap[color.name] || "#ccc";
+    return `
+      <div class="swatch">
+        <div class="dot" style="background:${fill}"></div>
+        <div>${esc(color.name)}</div>
+        <div class="cnt">${number(color.count)}</div>
+      </div>
+    `;
+  }).join("")}</div>`;
+
+  const maxWord = Math.max(1, ...data.hot_words.map((word) => word.count || 0));
+  const minWord = Math.min(maxWord, ...data.hot_words.map((word) => word.count || maxWord));
+  $("#cloud").innerHTML = data.hot_words.map((word) => {
+    const t = maxWord === minWord ? 1 : (word.count - minWord) / (maxWord - minWord);
+    const scale = (0.85 + t * 1.45).toFixed(2);
+    const weight = t > 0.6 ? 700 : t > 0.3 ? 500 : 400;
+    return `<span style="font-size:${scale}em;font-weight:${weight}" title="出现 ${number(word.count)} 次">${esc(word.word)}</span>`;
+  }).join("");
+
+  $("#duptbody").innerHTML = data.dup_shops.map((row, index) => {
+    const cls = row.dup_rate >= 50 ? "rate-high" : row.dup_rate >= 30 ? "rate-mid" : "";
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td><b>${esc(row.shop)}</b></td>
+        <td>${number(row.links)}</td>
+        <td>${number(row.unique_imgs)}</td>
+        <td><span class="rate-bar"><span class="rate-fill" style="width:${Math.min(row.dup_rate, 100)}%"></span></span><span class="${cls}">${row.dup_rate}%</span></td>
+      </tr>
+    `;
+  }).join("");
+
+  $("#products").innerHTML = data.top_products.map((product) => `
+    <div class="prod">
+      <a href="${esc(product.url || "#")}" target="_blank" rel="noopener">
+        ${product.image ? `<img loading="lazy" src="${esc(product.image)}" alt="">` : ""}
+        <div class="info">
+          <div class="t">${esc(product.title)}</div>
+          <div class="pr">${money(product.price)}<span class="y"> 起</span></div>
+          <div class="sa">${esc(product.sales_raw || "")}</div>
+          <div class="sh">${esc(product.shop)} · ${esc(product.location)}</div>
+        </div>
+      </a>
+    </div>
+  `).join("");
+
+  $("#dupCnt").textContent = data.visual_meta.dup_groups_count;
+  $("#visualNote").textContent = `展示重复铺货 TOP ${data.dup_groups.length} 组；全量共 ${data.visual_meta.dup_groups_count} 组同主图多链接，覆盖 ${number(data.visual_meta.dup_total_links)} 个商品链接。`;
+  $("#visualDup").innerHTML = data.dup_groups.map(renderDup).join("");
+  if ($("#visualStyle")) $("#visualStyle").innerHTML = "";
+}
+
+function setupDatasetPicker() {
+  const select = $("#datasetSelect");
+  if (!select) return;
+  select.innerHTML = datasets.map((data, index) => `
+    <option value="${esc(data.id || String(index))}">${esc(data.date)} · ${esc(data.keyword)}</option>
+  `).join("");
+
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get("dataset") || window.localStorage.getItem("market-dashboard-dataset");
+  const selected = datasets.find((data) => data.id === requested) || datasets[0];
+  if (selected) {
+    select.value = selected.id;
+    renderDashboard(selected);
+  }
+
+  select.addEventListener("change", () => {
+    const next = datasets.find((data) => data.id === select.value) || datasets[0];
+    if (!next) return;
+    window.localStorage.setItem("market-dashboard-dataset", next.id);
+    const url = new URL(window.location.href);
+    url.searchParams.set("dataset", next.id);
+    window.history.replaceState(null, "", url);
+    renderDashboard(next);
+  });
+}
+
+setupDatasetPicker();

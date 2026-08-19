@@ -3,13 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>德训鞋女 · 淘宝市场情报看板</title>
+  <title>淘宝女鞋 · 市场情报看板</title>
   <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
   <div class="wrap">
     <header>
-      <div class="eyebrow">Taobao Market Intelligence</div>
+      <div class="header-top">
+        <div class="eyebrow">Taobao Market Intelligence</div>
+        <label class="dataset-picker">
+          <span>数据集</span>
+          <select id="datasetSelect" aria-label="选择日期和关键词"></select>
+        </label>
+      </div>
       <h1 id="h1"></h1>
       <div class="sub" id="sub"></div>
       <div class="meta" id="meta"></div>

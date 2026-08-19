@@ -19,14 +19,17 @@ import pandas as pd
 from PIL import Image, ImageOps
 
 
-SOURCE_PATH = Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx")
+SOURCE_PATHS = [
+    Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx"),
+    Path("/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_sales_top100_pages_20260819.xlsx"),
+]
 OUT_PATH = Path(__file__).resolve().parents[1] / "data.js"
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "phash"
 IMAGE_CACHE_DIR = CACHE_DIR / "images"
 PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
 PHASH_DISTANCE_THRESHOLD = 6
 MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE = 0.6
-DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页"]
+DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页", "板鞋女销量前100页"]
 DCT_SIZE = 32
 HASH_SIZE = 8
 DCT_MATRIX = np.array(
@@ -152,7 +155,8 @@ def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]
             overview = dict(zip(overview_df["指标"].astype(str), overview_df["值"]))
 
     if "关键词" not in overview:
-        overview["关键词"] = "德训鞋女"
+        sheet_match = re.match(r"(.+?)销量前\d+页", data_sheet)
+        overview["关键词"] = sheet_match.group(1) if sheet_match else infer_keyword_from_filename(source)
     if "排序方式" not in overview:
         overview["排序方式"] = "销量排序"
     if "抓取页数" not in overview and "页码" in raw.columns and raw["页码"].notna().any():
@@ -162,6 +166,35 @@ def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]
         overview["其中广告位"] = int(raw["商品链接"].fillna("").astype(str).str.contains("click.simba.taobao.com").sum())
 
     return raw, overview
+
+
+def infer_keyword_from_filename(source: Path) -> str:
+    stem = source.stem.lower()
+    if "dexunxie_nv" in stem or "德训鞋女" in stem:
+        return "德训鞋女"
+    if "banxie_nv" in stem or "板鞋女" in stem:
+        return "板鞋女"
+    return source.stem
+
+
+def source_date(source: Path, generated: object | None = None) -> str:
+    match = re.search(r"(20\d{6})", source.stem)
+    if match:
+        value = match.group(1)
+        return f"{value[:4]}-{value[4:6]}-{value[6:8]}"
+    if generated and not pd.isna(generated):
+        try:
+            return pd.to_datetime(generated).strftime("%Y-%m-%d")
+        except (TypeError, ValueError):
+            pass
+    return datetime.fromtimestamp(source.stat().st_mtime).strftime("%Y-%m-%d")
+
+
+def dataset_id(keyword: str, date: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", keyword.lower()).strip("-")
+    if not slug:
+        slug = hashlib.sha1(keyword.encode("utf-8")).hexdigest()[:8]
+    return f"{date}-{slug}"
 
 
 def cache_file_for_key(image_key: str) -> Path:
@@ -608,8 +641,7 @@ def phash_style_groups(df: pd.DataFrame, clusters: list[list[str]], top_n: int =
     return groups[:top_n], len(groups), len(candidates)
 
 
-def main() -> None:
-    source = Path(sys.argv[1]) if len(sys.argv) > 1 else SOURCE_PATH
+def build_dataset(source: Path) -> dict:
     if not source.exists():
         raise SystemExit(f"Source workbook not found: {source}")
 
@@ -669,8 +701,13 @@ def main() -> None:
         generated = pd.to_datetime(generated).strftime("%Y-%m-%d %H:%M")
 
     prices = df["价格(元)"].astype(float)
+    keyword = str(overview.get("关键词", infer_keyword_from_filename(source)))
+    date = source_date(source, generated)
     data = {
-        "keyword": str(overview.get("关键词", "德训鞋女")),
+        "id": dataset_id(keyword, date),
+        "keyword": keyword,
+        "date": date,
+        "source_file": source.name,
         "generated_at": str(generated),
         "platform": "淘宝/天猫",
         "sort": str(overview.get("排序方式", "销量排序")),
@@ -718,13 +755,30 @@ def main() -> None:
         "dup_shops": dup_shop_rows[:10],
     }
 
-    OUT_PATH.write_text("const D=" + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";\n", encoding="utf-8")
+    return data
+
+
+def main() -> None:
+    sources = [Path(arg) for arg in sys.argv[1:]] if len(sys.argv) > 1 else SOURCE_PATHS
+    datasets = [build_dataset(source) for source in sources]
+    default_dataset = datasets[0] if datasets else {}
+    output = "const DATASETS=" + json.dumps(datasets, ensure_ascii=False, separators=(",", ":")) + ";\n"
+    output += "const D=DATASETS[0];\n"
+    OUT_PATH.write_text(output, encoding="utf-8")
     print(json.dumps({
         "output": str(OUT_PATH),
-        "products": data["kpi"]["total_products"],
-        "shops": data["kpi"]["total_shops"],
-        "dup_groups": dup_total,
-        "style_groups": style_total,
+        "datasets": [
+            {
+                "id": data["id"],
+                "keyword": data["keyword"],
+                "date": data["date"],
+                "products": data["kpi"]["total_products"],
+                "shops": data["kpi"]["total_shops"],
+                "dup_groups": data["visual_meta"]["dup_groups_count"],
+            }
+            for data in datasets
+        ],
+        "default": default_dataset.get("id"),
     }, ensure_ascii=False))
 
 

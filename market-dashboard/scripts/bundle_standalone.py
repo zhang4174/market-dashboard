@@ -15,7 +15,7 @@ def main() -> None:
     html = index
     html = html.replace('  <link rel="stylesheet" href="assets/style.css">\n', f"  <style>\n{style}\n  </style>\n")
     html = html.replace('  <script src="data.js"></script>\n  <script src="assets/app.js"></script>\n', f"  <script>\n{data}\n  </script>\n  <script>\n{app}\n  </script>\n")
-    html = html.replace("<title>德训鞋女 · 淘宝市场情报看板</title>", "<title>德训鞋女 · 淘宝市场情报看板（离线版）</title>")
+    html = html.replace("<title>淘宝女鞋 · 市场情报看板</title>", "<title>淘宝女鞋 · 市场情报看板（离线版）</title>")
 
     output = ROOT / "standalone.html"
     output.write_text(html, encoding="utf-8")

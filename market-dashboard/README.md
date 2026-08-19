@@ -1,6 +1,6 @@
-# 德训鞋女市场情报看板
+# 淘宝女鞋市场情报看板
 
-基于 `/Users/mac/WorkBuddy/lin'shi/market-intel/output/德训鞋女_销量排序_100页_原始数据.xlsx` 生成的淘宝/天猫市场情报单页看板。
+基于多份淘宝/天猫销量排序 Excel 生成的市场情报单页看板。页面左上角可按日期和关键词切换数据集，每次只分析当前选中的单份数据。
 
 ## 打开方式
 
@@ -23,6 +23,11 @@ http://127.0.0.1:8176/
 ```bash
 /Users/mac/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/bin/python3 /Users/mac/Documents/TVC/market-dashboard/scripts/build_dashboard.py
 ```
+
+当前默认数据源：
+
+- `/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx`
+- `/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_sales_top100_pages_20260819.xlsx`
 
 生成后如需更新离线单文件：
 
