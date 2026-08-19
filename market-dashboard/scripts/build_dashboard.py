@@ -22,6 +22,7 @@ from PIL import Image, ImageOps
 SOURCE_PATHS = [
     Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx"),
     Path("/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_sales_top100_pages_20260819.xlsx"),
+    Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_price500plus_sales_top100_pages.xlsx"),
 ]
 OUT_PATH = Path(__file__).resolve().parents[1] / "data.js"
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "phash"
@@ -29,7 +30,7 @@ IMAGE_CACHE_DIR = CACHE_DIR / "images"
 PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
 PHASH_DISTANCE_THRESHOLD = 6
 MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE = 0.6
-DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页", "板鞋女销量前100页"]
+DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页", "板鞋女销量前100页", "德训鞋女500以上销量"]
 DCT_SIZE = 32
 HASH_SIZE = 8
 DCT_MATRIX = np.array(
@@ -154,9 +155,12 @@ def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]
         if {"指标", "值"}.issubset(overview_df.columns):
             overview = dict(zip(overview_df["指标"].astype(str), overview_df["值"]))
 
-    if "关键词" not in overview:
+    inferred_keyword = infer_keyword_from_filename(source)
+    if "500 元以上" in inferred_keyword:
+        overview["关键词"] = inferred_keyword
+    elif "关键词" not in overview:
         sheet_match = re.match(r"(.+?)销量前\d+页", data_sheet)
-        overview["关键词"] = sheet_match.group(1) if sheet_match else infer_keyword_from_filename(source)
+        overview["关键词"] = sheet_match.group(1) if sheet_match else inferred_keyword
     if "排序方式" not in overview:
         overview["排序方式"] = "销量排序"
     if "抓取页数" not in overview and "页码" in raw.columns and raw["页码"].notna().any():
@@ -170,6 +174,8 @@ def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]
 
 def infer_keyword_from_filename(source: Path) -> str:
     stem = source.stem.lower()
+    if "price500plus" in stem or "500plus" in stem or "500以上" in stem:
+        return "德训鞋女 500 元以上"
     if "dexunxie_nv" in stem or "德训鞋女" in stem:
         return "德训鞋女"
     if "banxie_nv" in stem or "板鞋女" in stem:
@@ -195,6 +201,13 @@ def dataset_id(keyword: str, date: str) -> str:
     if not slug:
         slug = hashlib.sha1(keyword.encode("utf-8")).hexdigest()[:8]
     return f"{date}-{slug}"
+
+
+def min_price_filter(source: Path) -> float | None:
+    stem = source.stem.lower()
+    if "price500plus" in stem or "500plus" in stem or "500以上" in stem:
+        return 500.0
+    return None
 
 
 def cache_file_for_key(image_key: str) -> Path:
@@ -650,6 +663,9 @@ def build_dataset(source: Path) -> dict:
     df = raw.copy()
     df["价格(元)"] = pd.to_numeric(df["价格(元)"], errors="coerce")
     df = df.dropna(subset=["价格(元)", "商品标题", "店铺"]).copy()
+    min_price = min_price_filter(source)
+    if min_price is not None:
+        df = df[df["价格(元)"] >= min_price].copy()
     df["sales_num"] = df["销量"].map(parse_sales)
     df["image_key"] = df["主图链接"].fillna("").astype(str).map(normalize_image)
     df["province"] = df["产地"].fillna("").astype(str).map(province)
@@ -703,6 +719,7 @@ def build_dataset(source: Path) -> dict:
     prices = df["价格(元)"].astype(float)
     keyword = str(overview.get("关键词", infer_keyword_from_filename(source)))
     date = source_date(source, generated)
+    ad_count = int(df["商品链接"].fillna("").astype(str).str.contains("click.simba.taobao.com").sum())
     data = {
         "id": dataset_id(keyword, date),
         "keyword": keyword,
@@ -724,7 +741,7 @@ def build_dataset(source: Path) -> dict:
             "min_price": round(float(prices.min()), 2),
             "max_price": round(float(prices.max()), 2),
             "unique_images": int(df["image_key"].nunique()),
-            "ad_count": int(overview.get("其中广告位", 0)),
+            "ad_count": ad_count,
             "total_brands": int(len(brand_counter)),
             "branded_products": int(sum(brand_counter.values())),
             "unbranded_products": int(len(df) - sum(brand_counter.values())),

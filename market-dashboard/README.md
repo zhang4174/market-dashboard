@@ -28,6 +28,7 @@ http://127.0.0.1:8176/
 
 - `/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx`
 - `/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_sales_top100_pages_20260819.xlsx`
+- `/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_price500plus_sales_top100_pages.xlsx`（生成时强制过滤 `价格 >= 500`）
 
 生成后如需更新离线单文件：
 
