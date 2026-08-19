@@ -23,6 +23,7 @@ SOURCE_PATHS = [
     Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx"),
     Path("/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_sales_top100_pages_20260819.xlsx"),
     Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_price500plus_sales_top100_pages.xlsx"),
+    Path("/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_price500plus_sales_top100_pages.xlsx"),
 ]
 OUT_PATH = Path(__file__).resolve().parents[1] / "data.js"
 CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "phash"
@@ -30,7 +31,7 @@ IMAGE_CACHE_DIR = CACHE_DIR / "images"
 PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
 PHASH_DISTANCE_THRESHOLD = 6
 MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE = 0.6
-DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页", "板鞋女销量前100页", "德训鞋女500以上销量"]
+DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页", "板鞋女销量前100页", "德训鞋女500以上销量", "板鞋女500以上销量"]
 DCT_SIZE = 32
 HASH_SIZE = 8
 DCT_MATRIX = np.array(
@@ -175,6 +176,8 @@ def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]
 def infer_keyword_from_filename(source: Path) -> str:
     stem = source.stem.lower()
     if "price500plus" in stem or "500plus" in stem or "500以上" in stem:
+        if "banxie_nv" in stem or "板鞋女" in stem:
+            return "板鞋女 500 元以上"
         return "德训鞋女 500 元以上"
     if "dexunxie_nv" in stem or "德训鞋女" in stem:
         return "德训鞋女"
@@ -197,6 +200,10 @@ def source_date(source: Path, generated: object | None = None) -> str:
 
 
 def dataset_id(keyword: str, date: str) -> str:
+    if keyword == "德训鞋女 500 元以上":
+        return f"{date}-dexunxie-500plus"
+    if keyword == "板鞋女 500 元以上":
+        return f"{date}-banxie-500plus"
     slug = re.sub(r"[^a-z0-9]+", "-", keyword.lower()).strip("-")
     if not slug:
         slug = hashlib.sha1(keyword.encode("utf-8")).hexdigest()[:8]
