@@ -20,6 +20,10 @@ from PIL import Image, ImageOps
 
 
 SOURCE_PATHS = [
+    Path("/Users/mac/Documents/TVC/outputs/淘宝_德训鞋女_销量排序_前100页_20260820_134059.xlsx"),
+    Path("/Users/mac/Documents/TVC/outputs/淘宝_板鞋女_销量排序_前100页_20260820_143806.xlsx"),
+    Path("/Users/mac/Documents/TVC/outputs/淘宝_德训鞋女_最低价500_销量排序_前100页_20260820_152137.xlsx"),
+    Path("/Users/mac/Documents/TVC/outputs/淘宝_板鞋女_最低价500_销量排序_前100页_20260820_complete.xlsx"),
     Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_sales_top100_pages.xlsx"),
     Path("/Users/mac/Documents/TVC/outputs/taobao_banxie_nv_sales_top100_pages_20260819.xlsx"),
     Path("/Users/mac/Documents/TVC/outputs/taobao_dexunxie_nv_price500plus_sales_top100_pages.xlsx"),
@@ -32,6 +36,11 @@ PHASH_CACHE_PATH = CACHE_DIR / "phash-cache-dct-v1.json"
 PHASH_DISTANCE_THRESHOLD = 6
 MAX_STYLE_DUPLICATE_IMAGE_LINK_SHARE = 0.6
 DATA_SHEET_CANDIDATES = ["德训鞋女-销量排序", "德训鞋女销量前100页", "板鞋女销量前100页", "德训鞋女500以上销量", "板鞋女500以上销量"]
+SOURCE_DATE_OVERRIDES = {
+    "taobao_dexunxie_nv_sales_top100_pages.xlsx": "2026-08-19",
+    "taobao_dexunxie_nv_price500plus_sales_top100_pages.xlsx": "2026-08-19",
+    "taobao_banxie_nv_price500plus_sales_top100_pages.xlsx": "2026-08-19",
+}
 DCT_SIZE = 32
 HASH_SIZE = 8
 DCT_MATRIX = np.array(
@@ -175,7 +184,8 @@ def read_source_workbook(source: Path) -> tuple[pd.DataFrame, dict[str, object]]
 
 def infer_keyword_from_filename(source: Path) -> str:
     stem = source.stem.lower()
-    if "price500plus" in stem or "500plus" in stem or "500以上" in stem:
+    is_500plus = any(token in stem for token in ["price500plus", "500plus", "500以上", "最低价500"])
+    if is_500plus:
         if "banxie_nv" in stem or "板鞋女" in stem:
             return "板鞋女 500 元以上"
         return "德训鞋女 500 元以上"
@@ -187,6 +197,9 @@ def infer_keyword_from_filename(source: Path) -> str:
 
 
 def source_date(source: Path, generated: object | None = None) -> str:
+    override = SOURCE_DATE_OVERRIDES.get(source.name)
+    if override:
+        return override
     match = re.search(r"(20\d{6})", source.stem)
     if match:
         value = match.group(1)
@@ -212,7 +225,7 @@ def dataset_id(keyword: str, date: str) -> str:
 
 def min_price_filter(source: Path) -> float | None:
     stem = source.stem.lower()
-    if "price500plus" in stem or "500plus" in stem or "500以上" in stem:
+    if any(token in stem for token in ["price500plus", "500plus", "500以上", "最低价500"]):
         return 500.0
     return None
 

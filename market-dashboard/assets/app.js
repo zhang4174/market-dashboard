@@ -147,7 +147,7 @@ window.showRep = showRep;
 function renderDashboard(data) {
   currentData = data;
   document.title = `${data.keyword} · 淘宝市场情报看板`;
-  $("#h1").textContent = `${data.keyword} · 市场情报看板`;
+  $("#h1").innerHTML = `${esc(data.keyword)} <span class="title-sep">·</span> <span class="title-main">市场情报看板</span>`;
   $("#sub").textContent = `基于${data.platform}「${data.keyword}」按${data.sort}抓取前 ${data.pages} 页，共 ${number(data.kpi.total_products)} 个商品、${number(data.kpi.total_shops)} 家店铺的多维度分析。`;
   $("#meta").innerHTML = [
     `日期：${data.date}`,
